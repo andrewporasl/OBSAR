@@ -1,0 +1,93 @@
+{
+  "name": "obsar",
+  "version": "0.2.0",
+  "description": "Local semantic search over your images, GIFs and videos",
+  "main": "./out/main/main.js",
+  "private": true,
+  "author": "andrewporasl",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "fetch-uv": "node scripts/fetch-uv.mjs",
+    "dist": "npm run fetch-uv && electron-vite build && electron-builder --win",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  },
+  "build": {
+    "appId": "com.porasl.obsar",
+    "productName": "OBSAR",
+    "artifactName": "OBSAR-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/obsar",
+        "to": "backend/obsar",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
+        "from": "../backend/pyproject.toml",
+        "to": "backend/pyproject.toml"
+      },
+      {
+        "from": "../backend/uv.lock",
+        "to": "backend/uv.lock"
+      },
+      {
+        "from": "../backend/.env.example",
+        "to": "backend/.env.example"
+      },
+      {
+        "from": "resources/bin/uv.exe",
+        "to": "bin/uv.exe"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OBSAR",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

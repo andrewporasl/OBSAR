@@ -1,0 +1,11 @@
+backend/.venv/
+__pycache__/
+*.pyc
+app/node_modules/
+app/dist/
+app/out/
+app/release/
+.DS_Store
+backend/.env
+app/resources/bin/
+app/release/
