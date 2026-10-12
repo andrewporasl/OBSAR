@@ -100,7 +100,8 @@
       {
         "provider": "github",
         "owner": "andrewporasl",
-        "repo": "OBSAR"
+        "repo": "OBSAR",
+        "releaseType": "release"
       }
     ]
   },
