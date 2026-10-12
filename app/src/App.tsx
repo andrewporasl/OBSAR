@@ -11,6 +11,8 @@ import { Logo } from './components/Logo'
 import { Lightbox } from './components/Lightbox'
 import type { AppSettings, UpdateEvent } from '../electron/preload'
 
+
+const PAGE = 120 // files per page when browsing without a query
 export default function App() {
   const be = useBackend()
   const { info, status, libraries, storage, down, log } = be
@@ -30,6 +32,12 @@ export default function App() {
   const [whatsNew, setWhatsNew] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const [browseTotal, setBrowseTotal] = useState<number | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const loadingRef = useRef(false)
+  const itemsLenRef = useRef(0)
+  itemsLenRef.current = items.length
+  const gridWrapRef = useRef<HTMLElement>(null)
   const lastClick = useRef<number | null>(null)
 
   useEffect(() => {
@@ -55,11 +63,24 @@ export default function App() {
     try {
       if (similarOf) {
         const r = await api.similar(similarOf.id)
-        if (!ctl.signal.aborted) setItems(r.items)
+        if (!ctl.signal.aborted) {
+          setItems(r.items)
+          setBrowseTotal(null)
+        }
+      } else if (!q.trim()) {
+        // browsing: keep whatever pages are already loaded when results refresh
+        const want = Math.max(PAGE, Math.min(itemsLenRef.current, 2000))
+        const r = await api.browse(kind, library, 0, want, ctl.signal)
+        if (!ctl.signal.aborted) {
+          setItems(r.items)
+          setBrowseTotal(r.total)
+          setDegraded(false)
+        }
       } else {
         const r = await api.search(q, kind, library, 80, ctl.signal)
         if (!ctl.signal.aborted) {
           setItems(r.items)
+          setBrowseTotal(null)
           setDegraded(r.degraded)
         }
       }
@@ -72,6 +93,52 @@ export default function App() {
     const t = setTimeout(runSearch, q ? 140 : 0)
     return () => clearTimeout(t)
   }, [runSearch, q])
+
+  // browsing without a query: append the next page when the grid is scrolled near the bottom
+  const loadMore = useCallback(async () => {
+    if (loadingRef.current || browseTotal === null || itemsLenRef.current >= browseTotal) return
+    loadingRef.current = true
+    setLoadingMore(true)
+    try {
+      const r = await api.browse(kind, library, itemsLenRef.current, PAGE)
+      setItems((prev) => {
+        const seen = new Set(prev.map((i) => i.id))
+        return [...prev, ...r.items.filter((i) => !seen.has(i.id))]
+      })
+      setBrowseTotal(r.total)
+    } catch (e) {
+      console.warn(e)
+    } finally {
+      loadingRef.current = false
+      setLoadingMore(false)
+    }
+  }, [kind, library, browseTotal])
+
+  // a sentinel below the grid: whenever it comes within ~900px of view, fetch the next page.
+  // This also covers the case where the first page does not fill the window.
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef(loadMore)
+  loadMoreRef.current = loadMore
+  useEffect(() => {
+    const el = sentinelRef.current
+    const root = gridWrapRef.current
+    if (!el || !root) return
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && loadMoreRef.current(), {
+      root,
+      rootMargin: '900px 0px'
+    })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [browseTotal === null])
+  // after a page lands, re-check: the sentinel may still be in range
+  useEffect(() => {
+    const el = sentinelRef.current
+    const root = gridWrapRef.current
+    if (!el || !root || browseTotal === null) return
+    const r = el.getBoundingClientRect()
+    const rr = root.getBoundingClientRect()
+    if (r.top < rr.bottom + 900) loadMoreRef.current()
+  }, [items.length, browseTotal])
 
   // results refresh as indexing progresses
   const doneCount = status?.done ?? -1
@@ -274,6 +341,7 @@ export default function App() {
       <main className={'body' + (focused ? ' with-side' : '')}>
         <section
           className="grid-wrap"
+          ref={gridWrapRef}
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setSelected(new Set())
@@ -316,6 +384,16 @@ export default function App() {
               setFocusId(null)
             }}
           />
+          {browseTotal !== null && <div ref={sentinelRef} className="grid-sentinel" />}
+          {browseTotal !== null && items.length > 0 && (
+            <div className="grid-foot">
+              {loadingMore
+                ? 'Loading more…'
+                : items.length < browseTotal
+                  ? `${items.length.toLocaleString()} of ${browseTotal.toLocaleString()} · scroll for more`
+                  : `All ${browseTotal.toLocaleString()} files`}
+            </div>
+          )}
         </section>
         {focused && (
           <DetailPanel

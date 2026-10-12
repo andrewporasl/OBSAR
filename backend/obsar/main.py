@@ -129,6 +129,20 @@ async def search(
     return {"items": items, "degraded": False}
 
 
+@app.get("/browse")
+async def browse(
+    kind: str = Query("all", pattern="^(all|image|gif|video)$"),
+    library: int | None = None,
+    limit: int = Query(120, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """Page through the whole library (newest first) when there is no search query."""
+    def work():
+        rows = S.db.recent(limit, kind, library, offset)
+        return {"items": [row_to_dict(r) for r in rows], "total": S.db.browse_count(kind, library), "offset": offset}
+    return await run_in_threadpool(work)
+
+
 @app.get("/similar/{file_id}")
 async def similar(file_id: int, limit: int = 30):
     return {"items": await run_in_threadpool(S.searcher.similar, file_id, limit)}

@@ -2,6 +2,11 @@
 
 All notable changes to OBSAR are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.1] - 2026-10-11
+
+### Fixed
+- With an empty search box you can now scroll through the whole library. Files load in pages of 120 as you reach the bottom, newest first, with a running "x of y" count; before, only the 80 most recent files were shown.
+
 ## [0.2.0] - 2026-10-11
 
 First public release.

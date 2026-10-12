@@ -363,8 +363,9 @@ class DB:
         mat = np.stack([np.frombuffer(r["vec"], dtype=np.float16) for r in rows]).astype(np.float32)
         return mat, ids
 
-    def recent(self, limit: int, kind: str | None, lid: int | None = None) -> list[sqlite3.Row]:
-        q = "SELECT * FROM files WHERE status='done' AND library_id IN (SELECT id FROM libraries WHERE enabled=1)"
+    @staticmethod
+    def _browse_where(kind: str | None, lid: int | None) -> tuple[str, list]:
+        q = " WHERE status='done' AND library_id IN (SELECT id FROM libraries WHERE enabled=1)"
         args: list = []
         if kind and kind != "all":
             q += " AND kind=?"
@@ -372,10 +373,19 @@ class DB:
         if lid is not None:
             q += " AND library_id=?"
             args.append(lid)
-        q += " ORDER BY mtime DESC LIMIT ?"
-        args.append(limit)
+        return q, args
+
+    def recent(self, limit: int, kind: str | None, lid: int | None = None, offset: int = 0) -> list[sqlite3.Row]:
+        where, args = self._browse_where(kind, lid)
+        q = "SELECT * FROM files" + where + " ORDER BY mtime DESC, id DESC LIMIT ? OFFSET ?"
+        args += [limit, offset]
         with self.lock:
             return self.conn.execute(q, args).fetchall()
+
+    def browse_count(self, kind: str | None, lid: int | None = None) -> int:
+        where, args = self._browse_where(kind, lid)
+        with self.lock:
+            return int(self.conn.execute("SELECT COUNT(*) FROM files" + where, args).fetchone()[0])
 
     def fts_search(self, query: str, limit: int = 200) -> list[tuple[int, float]]:
         """Return [(file_id, score)] with higher = better."""

@@ -147,7 +147,7 @@ Two pieces: a **Python backend** (`backend/`, FastAPI) that indexes and searches
   This is the part that nails exact phrases like "press b to buy" or a filename fragment.
 - **Fusion**: both scores are normalised within the current search and blended. The match percentage
   in the detail panel is that blend, so it is relative to the other results, not an absolute grade.
-- **Empty query** shows the most recently modified files. **Similar** uses a file's own vector as the
+- **Empty query** browses the whole library, newest first, loading more as you scroll. **Similar** uses a file's own vector as the
   query.
 
 ### Footprint

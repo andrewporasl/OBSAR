@@ -132,6 +132,11 @@ export const api = {
       `/search?q=${encodeURIComponent(q)}&kind=${kind}&limit=${limit}${library ? `&library=${library}` : ''}`,
       { signal }
     ),
+  browse: (kind: Kind, library: number | null, offset: number, limit = 120, signal?: AbortSignal) =>
+    j<{ items: Item[]; total: number; offset: number }>(
+      `/browse?kind=${kind}&limit=${limit}&offset=${offset}${library ? `&library=${library}` : ''}`,
+      { signal }
+    ),
   similar: (id: number) => j<{ items: Item[] }>(`/similar/${id}`),
   reindex: (id: number) => post<{ ok: boolean }>(`/reindex/${id}`),
   rescan: () => post<{ ok: boolean }>('/rescan'),

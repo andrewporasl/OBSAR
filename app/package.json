@@ -1,6 +1,6 @@
 {
   "name": "obsar",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local semantic search over your images, GIFs and videos",
   "main": "./out/main/main.js",
   "private": true,
