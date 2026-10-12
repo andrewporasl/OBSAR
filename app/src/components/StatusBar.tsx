@@ -1,10 +1,12 @@
 import { fmtBytes, Status } from '../api'
+import type { UpdateEvent } from '../../electron/preload'
 
 interface Props {
   status: Status | null
   down: boolean
   degraded: boolean
   selectedCount: number
+  update: UpdateEvent
   onSettings: () => void
   onRestart: () => void
 }
@@ -21,7 +23,7 @@ function modelLine(status: Status): string | null {
   return null
 }
 
-export function StatusBar({ status, down, degraded, selectedCount, onSettings, onRestart }: Props) {
+export function StatusBar({ status, down, degraded, selectedCount, update, onSettings, onRestart }: Props) {
   let text: React.ReactNode
   let percent: number | null = null
   if (down) {
@@ -47,12 +49,26 @@ export function StatusBar({ status, down, degraded, selectedCount, onSettings, o
   } else {
     text = `${status.total.toLocaleString()} files · ${status.library_count} ${status.library_count === 1 ? 'library' : 'libraries'} · watching for changes${status.error ? ` · ${status.error} failed` : ''}`
   }
+
+  let updateNode: React.ReactNode = null
+  if (update.state === 'downloading') updateNode = <span className="muted">Downloading update {Math.round(update.percent ?? 0)}%</span>
+  else if (update.state === 'ready')
+    updateNode = (
+      <span className="update-ready">
+        Update {update.version} ready ·{' '}
+        <button className="link" onClick={() => window.obsar.installUpdate()}>
+          Restart to update
+        </button>
+      </span>
+    )
+
   return (
     <footer className="status">
       {percent !== null && <div className="progress" style={{ width: `${Math.max(1, percent)}%` }} />}
       <span className="status-text">{text}</span>
       <span className="spacer" />
       {degraded && <span className="warn">text-only results until models load</span>}
+      {updateNode}
       {selectedCount > 1 && <span className="muted">{selectedCount} selected</span>}
       <button className="icon-btn" onClick={onSettings} title="Settings (Ctrl+,)" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>

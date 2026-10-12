@@ -6,6 +6,9 @@ import { join, resolve } from 'path'
 import Store from 'electron-store'
 import type { AppSettings, SetupEvent } from './preload'
 import { SetupCancelled, SetupRunner } from './setup'
+import { checkNow, installNow, lastUpdateEvent, startUpdater } from './updater'
+import { initLog, logDir, write as logWrite } from './log'
+import { readFileSync } from 'fs'
 
 const isDev = !app.isPackaged
 if (process.env['OBSAR_CDP_PORT']) app.commandLine.appendSwitch('remote-debugging-port', process.env['OBSAR_CDP_PORT'])
@@ -21,6 +24,8 @@ let backendPort = 0
 let backendLog: string[] = []
 let quitting = false
 let setup: SetupRunner | null = null
+let backendStartedAt = 0
+let lastAutoRestart = 0
 
 // ---- single instance -------------------------------------------------------
 if (!app.requestSingleInstanceLock()) {
@@ -31,6 +36,7 @@ if (!app.requestSingleInstanceLock()) {
 
 function pushLog(line: string) {
   if (isDev) console.log(line)
+  logWrite(line)
   backendLog.push(line)
   if (backendLog.length > 400) backendLog.shift()
   win?.webContents.send('backend-log', line)
@@ -65,6 +71,22 @@ function pythonPath(): string {
   const venv = join(backendDir(), '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
   return existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3'
 }
+/** Tell the uninstaller where the big folders are (it cannot read the JSON config). */
+function writeDirsFile() {
+  try {
+    const fs = require('fs') as typeof import('fs')
+    const dir = join(app.getPath('appData'), 'obsar')
+    fs.mkdirSync(dir, { recursive: true })
+    const d = store.get('dataDir')
+    const m = store.get('modelsDir')
+    if (d) fs.writeFileSync(join(dir, 'dirs.txt'), `${d}
+
+${m ?? ''}
+
+`)
+  } catch {}
+}
+
 function needsSetup(): boolean {
   if (isDev) return process.env['OBSAR_FORCE_SETUP'] === '1' && !store.get('setupDone') // dev aid: preview the wizard
   return !store.get('setupDone') || !existsSync(pythonPath())
@@ -93,9 +115,19 @@ async function startBackend(): Promise<void> {
   backend = spawn(py, args, { cwd: backendDir(), env, windowsHide: true })
   backend.stdout?.on('data', (d) => d.toString().split(/\r?\n/).filter(Boolean).forEach(pushLog))
   backend.stderr?.on('data', (d) => d.toString().split(/\r?\n/).filter(Boolean).forEach(pushLog))
+  backendStartedAt = Date.now()
+  win?.webContents.send('backend-started', backendPort)
   backend.on('exit', (code) => {
     pushLog(`[obsar] backend exited with code ${code}`)
     backend = null
+    if (quitting) return
+    // crashed: restart automatically, but at most once per 5 minutes so a crash loop reaches the user
+    if (code !== 0 && Date.now() - lastAutoRestart > 5 * 60_000) {
+      lastAutoRestart = Date.now()
+      pushLog('[obsar] restarting backend automatically')
+      setTimeout(() => startBackend(), 1500)
+      return
+    }
     win?.webContents.send('backend-exit', code)
   })
 }
@@ -123,10 +155,22 @@ async function waitForBackend(timeoutMs = 120_000): Promise<boolean> {
 }
 
 // ---- window ----------------------------------------------------------------
+function savedBounds(): Partial<Electron.Rectangle> {
+  const b = store.get('bounds')
+  if (!b) return {}
+  const { screen } = require('electron') as typeof import('electron')
+  const visible = screen.getAllDisplays().some((d) => {
+    const a = d.workArea
+    return b.x + 100 < a.x + a.width && b.x + b.width - 100 > a.x && b.y + 50 < a.y + a.height && b.y + 50 > a.y
+  })
+  return visible ? b : { width: b.width, height: b.height }
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
     height: 820,
+    ...savedBounds(),
     minWidth: 760,
     minHeight: 520,
     backgroundColor: '#0e0f12',
@@ -159,6 +203,20 @@ function createWindow() {
       win?.hide()
     }
   })
+  if (store.get('maximized')) win.maximize()
+  let saveTimer: NodeJS.Timeout | null = null
+  const saveState = () => {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      if (!win) return
+      store.set('maximized', win.isMaximized())
+      if (!win.isMaximized() && !win.isMinimized()) store.set('bounds', win.getBounds())
+    }, 400)
+  }
+  win.on('resize', saveState)
+  win.on('move', saveState)
+  win.on('maximize', saveState)
+  win.on('unmaximize', saveState)
   win.on('closed', () => (win = null))
 }
 
@@ -240,8 +298,55 @@ ipcMain.handle('backend:info', () => ({
   log: backendLog,
   packaged: !isDev,
   needsSetup: needsSetup(),
-  settings: store.store
+  settings: store.store,
+  version: app.getVersion()
 }))
+
+ipcMain.handle('app:about', () => ({
+  version: app.getVersion(),
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+  node: process.versions.node,
+  platform: `${process.platform} ${process.arch}`,
+  dataDir: store.get('dataDir') ?? null,
+  modelsDir: store.get('modelsDir') ?? null,
+  logDir: logDir(),
+  packaged: !isDev
+}))
+
+ipcMain.handle('app:changelog', () => {
+  const p = isDev ? resolve(__dirname, '../../../CHANGELOG.md') : join(process.resourcesPath, 'CHANGELOG.md')
+  try {
+    return readFileSync(p, 'utf8')
+  } catch {
+    return ''
+  }
+})
+
+ipcMain.handle('gpu:info', () => {
+  return new Promise<{ name: string; vramMb: number } | null>((res) => {
+    execFile('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], { windowsHide: true, timeout: 5000 }, (err, out) => {
+      if (err || !out) return res(null)
+      const line = out.split(/\r?\n/).find(Boolean)
+      if (!line) return res(null)
+      const [name, mem] = line.split(',').map((s) => s.trim())
+      res({ name, vramMb: Number(mem) || 0 })
+    })
+  })
+})
+
+ipcMain.handle('update:check', async () => {
+  await checkNow()
+  return lastUpdateEvent()
+})
+ipcMain.handle('update:install', () => {
+  quitting = true
+  stopBackend()
+  installNow()
+})
+ipcMain.handle('shell:openExternal', (_e, url: string) => {
+  if (/^https?:\/\//.test(url)) shell.openExternal(url)
+})
 
 ipcMain.handle('backend:restart', async () => {
   stopBackend()
@@ -253,6 +358,7 @@ ipcMain.handle('backend:restart', async () => {
 ipcMain.handle('settings:set', async (_e, patch: Partial<AppSettings>) => {
   const before = { ...store.store }
   for (const [k, v] of Object.entries(patch)) store.set(k as keyof AppSettings, v as never)
+  if ('dataDir' in patch || 'modelsDir' in patch) writeDirsFile()
   if ('hotkey' in patch) applyHotkey()
   if ('tray' in patch) {
     if (patch.tray) setupTray()
@@ -337,6 +443,7 @@ ipcMain.handle('setup:run', async (_e, opts: { dataDir: string; modelsDir: strin
     }
     // step 3: models, through the backend
     store.set('setupDone', true) // lets startBackend proceed; reverted on failure
+    writeDirsFile()
     stopBackend()
     await startBackend()
     emit({ step: 'models', state: 'running', line: 'starting backend' })
@@ -430,8 +537,11 @@ ipcMain.handle('ctx:item', async () => {
 
 // ---- lifecycle -----------------------------------------------------------------
 app.whenReady().then(async () => {
+  initLog(store.get('dataDir') ?? app.getPath('userData'))
+  logWrite(`[obsar] v${app.getVersion()} packaged=${!isDev}`)
   installCsp()
   await startBackend()
+  startUpdater({ offline: () => !!store.get('offline'), log: pushLog })
   createWindow()
   setupTray()
   applyHotkey()

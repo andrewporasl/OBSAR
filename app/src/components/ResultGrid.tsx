@@ -103,12 +103,17 @@ function Tile(props: {
   onContextMenu: (e: React.MouseEvent) => void
 }) {
   const { item } = props
+  const ref = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState(false)
+  useEffect(() => {
+    if (props.focused) ref.current?.scrollIntoView({ block: 'nearest' })
+  }, [props.focused])
   const [previewReady, setPreviewReady] = useState(false)
   useEffect(() => setPreviewReady(false), [item.id])
   const animated = hover && item.preview
   return (
     <div
+      ref={ref}
       className={'tile' + (props.selected ? ' sel' : '') + (props.focused ? ' focus' : '')}
       style={{ gridRowEnd: `span ${props.span}` }}
       draggable

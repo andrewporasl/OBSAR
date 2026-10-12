@@ -35,7 +35,11 @@ export function useBackend() {
     refreshInfo()
     const offs = [
       window.obsar.onBackendLog((l) => setLog((p) => [...p.slice(-399), l])),
-      window.obsar.onBackendExit(() => setDown(true))
+      window.obsar.onBackendExit(() => setDown(true)),
+      window.obsar.onBackendStarted(() => {
+        // new process, possibly new port: re-read the connection info and resume polling
+        setTimeout(() => refreshInfo().then(() => setDown(false)), 500)
+      })
     ]
     return () => offs.forEach((f) => f())
   }, [refreshInfo])

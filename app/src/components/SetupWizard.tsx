@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fmtBytes } from '../api'
-import type { DriveInfo, SetupEvent } from '../../electron/preload'
+import type { DriveInfo, GpuInfo, SetupEvent } from '../../electron/preload'
 import { Logo } from './Logo'
 
 const NEED_BASE = 6.5e9 // python + torch
@@ -24,8 +24,13 @@ export function SetupWizard({ onDone }: Props) {
     models: { state: 'pending', lines: [] }
   })
   const [failed, setFailed] = useState<string | null>(null)
+  const [gpu, setGpu] = useState<GpuInfo | null | undefined>(undefined)
 
   useEffect(() => {
+    window.obsar.gpu().then((g) => {
+      setGpu(g)
+      if (!g || g.vramMb < 6000) setCaptions(false)
+    })
     window.obsar.drives().then((d) => {
       setDrives(d)
       const best = [...d].sort((a, b) => b.free - a.free)[0]
@@ -107,7 +112,16 @@ export function SetupWizard({ onDone }: Props) {
             <label className="toggle">
               <div>
                 <div className="toggle-label">Captions and text recognition (+{fmtBytes(NEED_CAPTION, 1)})</div>
-                <div className="muted small">Describes each file and reads any text so you can search by words too. Recommended with an NVIDIA GPU with 8 GB or more.</div>
+                <div className="muted small">
+                  Describes each file and reads any text so you can search by words too.{' '}
+                  {gpu === undefined
+                    ? ''
+                    : gpu === null
+                      ? 'No NVIDIA GPU detected: visual search works on the CPU, but captions would be very slow.'
+                      : gpu.vramMb < 6000
+                        ? `${gpu.name} has ${Math.round(gpu.vramMb / 1024)} GB of VRAM; captions need about 8 GB.`
+                        : `${gpu.name} detected.`}
+                </div>
               </div>
               <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} />
               <span className="switch" />

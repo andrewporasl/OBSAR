@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Check tag matches package version
+        shell: bash
+        run: |
+          v=$(node -p "require('./app/package.json').version")
+          [ "refs/tags/v$v" = "$GITHUB_REF" ] || { echo "tag $GITHUB_REF != package version $v"; exit 1; }
+
+      - name: Install
+        working-directory: app
+        run: npm ci
+
+      - name: Fetch uv
+        working-directory: app
+        run: npm run fetch-uv
+
+      - name: Build
+        working-directory: app
+        run: npx electron-vite build
+
+      - name: Package and publish
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish always
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: |
+            app/release/*.exe
+            app/release/*.yml
+            app/release/*.blockmap

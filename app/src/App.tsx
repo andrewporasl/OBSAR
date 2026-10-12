@@ -8,7 +8,8 @@ import { StatusBar } from './components/StatusBar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { SetupWizard } from './components/SetupWizard'
 import { Logo } from './components/Logo'
-import type { AppSettings } from '../electron/preload'
+import { Lightbox } from './components/Lightbox'
+import type { AppSettings, UpdateEvent } from '../electron/preload'
 
 export default function App() {
   const be = useBackend()
@@ -23,13 +24,22 @@ export default function App() {
   const [focusId, setFocusId] = useState<number | null>(null)
   const [similarOf, setSimilarOf] = useState<Item | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<'libraries' | 'storage' | 'general' | 'about'>('libraries')
+  const [lightbox, setLightbox] = useState<Item | null>(null)
+  const [update, setUpdate] = useState<UpdateEvent>({ state: 'idle' })
+  const [whatsNew, setWhatsNew] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const lastClick = useRef<number | null>(null)
 
   useEffect(() => {
-    if (info) setSettings(info.settings)
+    if (!info) return
+    setSettings(info.settings)
+    if (info.packaged && info.settings.lastSeenVersion && info.settings.lastSeenVersion !== info.version) setWhatsNew(info.version)
+    if (info.settings.lastSeenVersion !== info.version) window.obsar.setSettings({ lastSeenVersion: info.version })
   }, [info])
+
+  useEffect(() => window.obsar.onUpdate(setUpdate), [])
 
   const updateSettings = async (patch: Partial<AppSettings>) => {
     const s = await window.obsar.setSettings(patch)
@@ -143,7 +153,35 @@ export default function App() {
         e.preventDefault()
         setShowSettings((v) => !v)
       }
+      const typing = document.activeElement === inputRef.current
+      if (!typing && !showSettings && !lightbox && items.length && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) {
+        e.preventDefault()
+        const idx = focusId ? items.findIndex((i) => i.id === focusId) : -1
+        if (e.key === ' ') {
+          if (idx >= 0)
+            setSelected((p) => {
+              const n = new Set(p)
+              n.has(items[idx].id) ? n.delete(items[idx].id) : n.add(items[idx].id)
+              return n
+            })
+          return
+        }
+        const grid = document.querySelector('.grid') as HTMLElement | null
+        const cols = grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').length : 4
+        let next = idx
+        if (e.key === 'ArrowRight') next = Math.min(items.length - 1, idx + 1)
+        if (e.key === 'ArrowLeft') next = Math.max(0, idx - 1)
+        if (e.key === 'ArrowDown') next = Math.min(items.length - 1, idx + cols)
+        if (e.key === 'ArrowUp') next = Math.max(0, idx - cols)
+        if (idx < 0) next = 0
+        const it = items[next]
+        setFocusId(it.id)
+        setSelected(new Set([it.id]))
+        lastClick.current = next
+        return
+      }
       if (e.key === 'Escape') {
+        if (lightbox) return
         if (showSettings) setShowSettings(false)
         else if (similarOf) setSimilarOf(null)
         else if (document.activeElement === inputRef.current && q) setQ('')
@@ -163,7 +201,7 @@ export default function App() {
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [items, focusId, q, similarOf, showSettings])
+  }, [items, focusId, q, similarOf, showSettings, lightbox])
 
   useEffect(() => {
     const offs = [
@@ -171,7 +209,10 @@ export default function App() {
         inputRef.current?.focus()
         inputRef.current?.select()
       }),
-      window.obsar.onOpenSettings(() => setShowSettings(true))
+      window.obsar.onOpenSettings(() => {
+        setSettingsTab('libraries')
+        setShowSettings(true)
+      })
     ]
     return () => offs.forEach((f) => f())
   }, [])
@@ -267,7 +308,7 @@ export default function App() {
             selected={selected}
             focusId={focusId}
             onTileClick={onTileClick}
-            onOpen={(it) => window.obsar.open(it.path)}
+            onOpen={(it) => (it.kind === 'video' ? window.obsar.open(it.path) : setLightbox(it))}
             onDragStart={onDragStart}
             onContext={onContext}
             onBackgroundClick={() => {
@@ -282,6 +323,7 @@ export default function App() {
             libraries={libraries}
             onDragStart={onDragStart}
             onSimilar={setSimilarOf}
+            onLightbox={setLightbox}
             onClose={() => {
               setFocusId(null)
               setSelected(new Set())
@@ -290,10 +332,63 @@ export default function App() {
         )}
       </main>
 
-      <StatusBar status={status} down={down} degraded={degraded} selectedCount={selected.size} onSettings={() => setShowSettings(true)} onRestart={() => window.obsar.restartBackend()} />
+      <StatusBar
+        status={status}
+        down={down}
+        degraded={degraded}
+        selectedCount={selected.size}
+        update={update}
+        onSettings={() => {
+          setSettingsTab('libraries')
+          setShowSettings(true)
+        }}
+        onRestart={() => window.obsar.restartBackend()}
+      />
+
+      {whatsNew && (
+        <div className="toast">
+          <span>Updated to OBSAR {whatsNew}.</span>
+          <button
+            className="link"
+            onClick={() => {
+              setWhatsNew(null)
+              setSettingsTab('about')
+              setShowSettings(true)
+            }}
+          >
+            What's new
+          </button>
+          <button className="icon-btn" onClick={() => setWhatsNew(null)} aria-label="Dismiss">
+            ×
+          </button>
+        </div>
+      )}
+
+      {lightbox && (
+        <Lightbox
+          item={lightbox}
+          onClose={() => setLightbox(null)}
+          onPrev={() => {
+            const i = items.findIndex((x) => x.id === lightbox.id)
+            if (i > 0) {
+              setLightbox(items[i - 1])
+              setFocusId(items[i - 1].id)
+            }
+          }}
+          onNext={() => {
+            const i = items.findIndex((x) => x.id === lightbox.id)
+            if (i >= 0 && i < items.length - 1) {
+              setLightbox(items[i + 1])
+              setFocusId(items[i + 1].id)
+            }
+          }}
+        />
+      )}
 
       {showSettings && settings && (
         <SettingsPanel
+          initialTab={settingsTab}
+          update={update}
           status={status}
           libraries={libraries}
           storage={storage}

@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "electron-store": "^8.2.0"
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
@@ -67,6 +68,10 @@
       {
         "from": "build/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "../CHANGELOG.md",
+        "to": "CHANGELOG.md"
       }
     ],
     "win": {
@@ -87,7 +92,22 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "OBSAR",
-      "deleteAppDataOnUninstall": false
-    }
-  }
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
+      "warningsAsErrors": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "andrewporasl",
+        "repo": "OBSAR"
+      }
+    ]
+  },
+  "homepage": "https://github.com/andrewporasl/OBSAR",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andrewporasl/OBSAR.git"
+  },
+  "license": "MIT"
 }

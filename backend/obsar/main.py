@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import config, storage, thumbs
+from . import __version__, config, storage, thumbs
 from .db import DB
 from .indexer import Indexer, VectorStore
 from .models import PROGRESS, ModelManager, ensure_model
@@ -89,6 +89,12 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 
 # ---- status / search ----------------------------------------------------
+@app.get("/health")
+def health():
+    """Cheap liveness probe for the Electron watchdog; never touches the models."""
+    return {"ok": True, "version": __version__}
+
+
 @app.get("/status")
 def status():
     st = S.indexer.status()
@@ -96,6 +102,7 @@ def status():
     st["models"] = PROGRESS.snapshot()
     st["sync_on_launch"] = S.sync_on_launch
     st["library_count"] = len(S.indexer.libraries)
+    st["version"] = __version__
     return st
 
 
@@ -348,12 +355,23 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--no-captions", action="store_true", help="skip the caption/OCR model (faster, visual only)")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--version", action="version", version=f"obsar {__version__}")
     args = ap.parse_args(argv)
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    try:
+        from logging.handlers import RotatingFileHandler
+
+        logdir = config.data_dir() / "logs"
+        logdir.mkdir(parents=True, exist_ok=True)
+        handlers.append(RotatingFileHandler(logdir / "backend.log", maxBytes=2_000_000, backupCount=2, encoding="utf-8"))
+    except OSError:
+        pass
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        stream=sys.stdout,
+        handlers=handlers,
     )
+    log.info("obsar %s starting (data=%s)", __version__, config.data_dir())
     for n in ("watchdog", "httpx", "httpx2", "httpcore", "urllib3", "filelock", "huggingface_hub"):
         logging.getLogger(n).setLevel(logging.WARNING)
     if args.no_captions or os.environ.get("OBSAR_CAPTIONS") == "0":

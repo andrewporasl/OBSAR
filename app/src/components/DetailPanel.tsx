@@ -5,10 +5,11 @@ interface Props {
   libraries: Library[]
   onDragStart: (e: React.DragEvent, item: Item) => void
   onSimilar: (item: Item) => void
+  onLightbox: (item: Item) => void
   onClose: () => void
 }
 
-export function DetailPanel({ item, libraries, onDragStart, onSimilar, onClose }: Props) {
+export function DetailPanel({ item, libraries, onDragStart, onSimilar, onLightbox, onClose }: Props) {
   const lib = libraries.find((l) => l.id === item.library_id)
   const rows: [string, string][] = [
     ['Type', item.kind.toUpperCase()],
@@ -28,8 +29,19 @@ export function DetailPanel({ item, libraries, onDragStart, onSimilar, onClose }
           ×
         </button>
       </div>
-      <div className="side-img">
-        <img src={url(item.preview ?? item.thumb)} alt="" draggable crossOrigin="anonymous" onDragStart={(e) => onDragStart(e, item)} />
+      <div className="side-img" title={item.kind === 'video' ? 'Drag to drop the file' : 'Click to view full size · drag to drop the file'}>
+        {item.kind === 'video' ? (
+          <video key={item.id} src={url(`/raw/${item.id}`)} poster={url(item.thumb)} controls autoPlay muted loop playsInline draggable onDragStart={(e) => onDragStart(e, item)} />
+        ) : (
+          <img
+            src={url(item.preview ?? item.thumb)}
+            alt=""
+            draggable
+            crossOrigin="anonymous"
+            onDragStart={(e) => onDragStart(e, item)}
+            onClick={() => onLightbox(item)}
+          />
+        )}
       </div>
       <div className="side-name" title={item.path}>
         {item.name}

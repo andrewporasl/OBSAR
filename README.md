@@ -1,5 +1,9 @@
 # OBSAR
 
+[![Release](https://img.shields.io/github/v/release/andrewporasl/OBSAR?display_name=tag)](https://github.com/andrewporasl/OBSAR/releases/latest)
+[![CI](https://github.com/andrewporasl/OBSAR/actions/workflows/ci.yml/badge.svg)](https://github.com/andrewporasl/OBSAR/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Local semantic search over your folders of images, GIFs and videos. Type what you remember
 ("blue", "ronaldo meme", "guy with headphones", a line of text from a meme) and drag the result
 straight out of the window into Explorer, Discord, Slack, Premiere, a browser upload box, anywhere.
@@ -23,14 +27,21 @@ Everything runs on your PC. Nothing leaves it.
 
 ## Download
 
-Grab `OBSAR-Setup-<version>.exe` from the [Releases](../../releases) page and run it.
+**[Download the latest installer](https://github.com/andrewporasl/OBSAR/releases/latest)** (`OBSAR-Setup-x.y.z.exe`, ~100 MB) and run it.
+
+The build is not code-signed, so Windows SmartScreen shows "Windows protected your PC" the first
+time. Click **More info → Run anyway**.
 
 On first launch OBSAR asks where to keep its data and then installs a Python runtime, the AI
 libraries and the models into that folder, with progress shown in the app. This is a one-time
 download of about **19 GB** (or 11 GB without captions). After that it works fully offline.
 
 Requirements: Windows 10/11 64-bit, 20 GB free on the chosen drive, an NVIDIA GPU with 8 GB+ VRAM
-recommended (it runs on CPU, just slowly), internet for the first run only.
+for captions (visual search alone runs on any GPU or on the CPU), internet for the first run only.
+
+**Updates** are automatic: the app checks GitHub Releases on launch, downloads in the background,
+and asks you to restart. **Uninstalling** from Windows Settings removes the app and asks whether to
+also delete the models and index folder it installed.
 
 ## Using it
 
@@ -152,6 +163,13 @@ and renders results from `/search`. Dragging a tile calls Electron's `startDrag`
 path, so the drop target (Explorer, Discord, Premiere, a browser) receives an ordinary file. The
 backend binds to `127.0.0.1` only. The installed app keeps everything it installs under the folder
 you pick during setup (`data\` for the runtime and index, `models\` for the models).
+
+## Releasing a new version
+
+1. Bump `version` in `app/package.json`, add a section to `CHANGELOG.md`, commit to `main`.
+2. `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. GitHub Actions builds the installer on a Windows runner and publishes the release with
+   `OBSAR-Setup-X.Y.Z.exe`, `latest.yml` and the blockmap. Installed copies update themselves.
 
 ## Development
 

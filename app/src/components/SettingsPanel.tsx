@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api, fmtAgo, fmtBytes, Library, Status, Storage } from '../api'
-import type { AppSettings } from '../../electron/preload'
+import type { AboutInfo, AppSettings, UpdateEvent } from '../../electron/preload'
 
 interface Props {
+  initialTab?: Tab
+  update: UpdateEvent
   status: Status | null
   libraries: Library[]
   storage: Storage | null
@@ -14,10 +16,10 @@ interface Props {
   onSettings: (patch: Partial<AppSettings>) => void
 }
 
-type Tab = 'libraries' | 'storage' | 'general'
+type Tab = 'libraries' | 'storage' | 'general' | 'about'
 
 export function SettingsPanel(p: Props) {
-  const [tab, setTab] = useState<Tab>('libraries')
+  const [tab, setTab] = useState<Tab>(p.initialTab ?? 'libraries')
   const [busy, setBusy] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<Library | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -53,7 +55,7 @@ export function SettingsPanel(p: Props) {
       <div className="modal" role="dialog" aria-label="Settings">
         <div className="modal-head">
           <nav className="tabs">
-            {(['libraries', 'storage', 'general'] as Tab[]).map((t) => (
+            {(['libraries', 'storage', 'general', 'about'] as Tab[]).map((t) => (
               <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
                 {t[0].toUpperCase() + t.slice(1)}
               </button>
@@ -182,6 +184,8 @@ export function SettingsPanel(p: Props) {
           </div>
         )}
 
+        {tab === 'about' && <AboutTab update={p.update} />}
+
         {confirm && (
           <div className="confirm">
             <div className="confirm-box">
@@ -216,6 +220,135 @@ export function SettingsPanel(p: Props) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function AboutTab({ update }: { update: UpdateEvent }) {
+  const [about, setAbout] = useState<AboutInfo | null>(null)
+  const [changelog, setChangelog] = useState('')
+  const [checking, setChecking] = useState(false)
+  const [result, setResult] = useState<UpdateEvent | null>(null)
+  useEffect(() => {
+    window.obsar.about().then(setAbout)
+    window.obsar.changelog().then(setChangelog)
+  }, [])
+  const u = result ?? update
+  let updateText = ''
+  if (checking || u.state === 'checking') updateText = 'Checking…'
+  else if (u.state === 'available' || u.state === 'downloading') updateText = `Downloading ${u.version ?? ''} ${u.percent ? Math.round(u.percent) + '%' : ''}`
+  else if (u.state === 'ready') updateText = `Version ${u.version} is ready. Restart to update.`
+  else if (u.state === 'none') updateText = 'You have the latest version.'
+  else if (u.state === 'error') updateText = `Update check failed: ${u.error}`
+  const notes = changelog.split(/\n(?=## )/).find((s) => s.startsWith('## ')) ?? ''
+  return (
+    <div className="modal-body">
+      <div className="about-head">
+        <div className="about-title">
+          <b>OBSAR</b> <span className="muted">{about?.version ?? ''}</span>
+        </div>
+        <div className="muted small">Local semantic search over your images, GIFs and videos. MIT licensed.</div>
+        <div className="about-links">
+          <button className="link" onClick={() => window.obsar.openExternal('https://github.com/andrewporasl/OBSAR')}>
+            GitHub
+          </button>
+          <button className="link" onClick={() => window.obsar.openExternal('https://github.com/andrewporasl/OBSAR/releases')}>
+            Releases
+          </button>
+          <button className="link" onClick={() => window.obsar.openExternal('https://github.com/andrewporasl/OBSAR/issues')}>
+            Report a problem
+          </button>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-main">
+          <div className="card-title">
+            <span className="name">Updates</span>
+          </div>
+          <div className="muted small">
+            {about?.packaged
+              ? 'OBSAR checks GitHub Releases on launch and every few hours, and installs updates when you restart.'
+              : 'Updates are only checked in the installed app.'}
+          </div>
+          {updateText && (
+            <div className="facts">
+              <span>{updateText}</span>
+            </div>
+          )}
+        </div>
+        <div className="card-actions">
+          <button
+            disabled={checking}
+            onClick={async () => {
+              setChecking(true)
+              try {
+                setResult(await window.obsar.checkForUpdates())
+              } finally {
+                setChecking(false)
+              }
+            }}
+          >
+            Check for updates
+          </button>
+          {u.state === 'ready' && (
+            <button className="primary" onClick={() => window.obsar.installUpdate()}>
+              Restart to update
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-main">
+          <div className="card-title">
+            <span className="name">Diagnostics</span>
+          </div>
+          <dl className="kv">
+            <div>
+              <dt>Electron</dt>
+              <dd>{about?.electron}</dd>
+            </div>
+            <div>
+              <dt>Chromium</dt>
+              <dd>{about?.chrome}</dd>
+            </div>
+            <div>
+              <dt>Platform</dt>
+              <dd>{about?.platform}</dd>
+            </div>
+            {about?.dataDir && (
+              <div>
+                <dt>Data</dt>
+                <dd>{about.dataDir}</dd>
+              </div>
+            )}
+            {about?.modelsDir && (
+              <div>
+                <dt>Models</dt>
+                <dd>{about.modelsDir}</dd>
+              </div>
+            )}
+            {about?.logDir && (
+              <div>
+                <dt>Logs</dt>
+                <dd>{about.logDir}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+        <div className="card-actions">
+          {about?.logDir && <button onClick={() => window.obsar.openPath(about.logDir!)}>Open log folder</button>}
+        </div>
+      </div>
+      {notes && (
+        <div className="card">
+          <div className="card-main">
+            <div className="card-title">
+              <span className="name">What's new</span>
+            </div>
+            <pre className="notes">{notes.replace(/^## /, '').replace(/^### /gm, '')}</pre>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
